@@ -1,0 +1,1 @@
+DELETE FROM public.cases; DELETE FROM public.activity; DELETE FROM public.clients;
