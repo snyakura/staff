@@ -248,6 +248,7 @@ function ChatBubble({ m, ai, req }: { m: ChatItem; ai: AiRead | null; req: numbe
           </div>
         ))}
       </div>
+      
     );
   if (m.from === "ai")
     return ai ? (

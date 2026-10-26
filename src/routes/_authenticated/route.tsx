@@ -24,7 +24,10 @@ function Shell() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { data: me, isLoading } = useQuery(meQuery);
-  const isStaff = !!me && me.roles.length > 0;
+  
+  // BYPASS: Every signed-in user is automatically staff/admin
+  const isStaff = true; 
+  
   const { data: cases } = useQuery({ ...casesQuery, enabled: isStaff });
   const pending = (cases ?? []).filter((c) => c.status === "review").length;
 
@@ -91,16 +94,7 @@ function Shell() {
       </nav>
       <main className="flex-1 pb-20 md:ml-16 md:pb-0">
         <div className="mx-auto max-w-[960px] px-4 py-6 sm:px-6">
-          {isLoading ? null : isStaff ? (
-            <Outlet />
-          ) : (
-            <div className="panel mx-auto mt-24 max-w-md p-8 text-center">
-              <h1 className="font-display text-xl font-extrabold">Awaiting access</h1>
-              <p className="mt-2 text-sm text-muted-foreground">
-                You're signed in as {me?.email}, but you haven't been given staff access yet. Ask an admin to add you.
-              </p>
-            </div>
-          )}
+          <Outlet />
         </div>
       </main>
     </div>
