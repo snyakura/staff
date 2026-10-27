@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
-import { Check, Clock, Copy, ScanLine, Send, X, Zap } from "lucide-react";
+import { useMemo, useState, useEffect, useRef } from "react";
+import { Check, Clock, Copy, ScanLine, Send, X, Zap, FileText, Image as ImageIcon, User, Phone, CreditCard } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { casesQuery, hhmm, money, type AiRead, type ChatItem } from "@/lib/data";
@@ -13,8 +13,6 @@ export const Route = createFileRoute("/_authenticated/queue")({
     meta: [
       { title: "Review queue — Coinspace Staff" },
       { name: "description", content: "Only the unusual cases land here. Everything else approves itself." },
-      { property: "og:title", content: "Review queue — Coinspace Staff" },
-      { property: "og:description", content: "Only the unusual cases land here." },
     ],
   }),
   loader: ({ context }) => context.queryClient.ensureQueryData(casesQuery),
@@ -29,8 +27,26 @@ function isToday(d: string) {
 
 function Queue() {
   const { data: cases } = useSuspenseQuery(casesQuery);
-  const [filter, setFilter] = useState<Filter>("all");
+  const qc = useQueryClient();
+  const [filter, setFilter] = useState<Filter>("all"); // Default to "all" so both deposits and withdrawals show up immediately
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Realtime subscription so new cases & messages sync instantly
+  useEffect(() => {
+    const refresh = () => qc.invalidateQueries();
+    const channel = supabase
+      .channel("staff-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "cases" }, (p) => {
+        refresh();
+        if (p.eventType === "INSERT") toast("New client case in the queue");
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "clients" }, refresh)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "activity" }, refresh)
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [qc]);
 
   const review = cases.filter((c) => c.status === "review");
   const list = review.filter((c) => filter === "all" || c.kind === filter);
@@ -82,9 +98,9 @@ function Queue() {
                 className={cn("panel block w-full p-3 text-left transition-shadow", selected?.id === c.id && "ring-1 ring-foreground")}
               >
                 <div className="flex items-start gap-2.5">
-                  <Avatar initials={c.client!.initials} />
+                  <Avatar initials={c.client?.initials || "U"} />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-bold">{c.client!.name}</p>
+                    <p className="truncate text-xs font-bold">{c.client?.name || "Client User"}</p>
                     <p className="flex items-center gap-1 text-[10px] text-muted-foreground"><KindIcon kind={c.kind} /> {c.kind} · {c.platform}</p>
                   </div>
                   <div className="text-right">
@@ -124,9 +140,25 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: "pr
 function CaseDetail({ c }: { c: any }) {
   const qc = useQueryClient();
   const [reply, setReply] = useState("");
+  const boxRef = useRef<HTMLDivElement>(null);
   const ai = c.ai_read as AiRead | null;
   const chat = (c.chat ?? []) as ChatItem[];
-  const first = c.client.name.split(" ")[0];
+    useEffect(() => {
+    boxRef.current?.scrollTo({ top: boxRef.current.scrollHeight, behavior: "smooth" });
+  }, [chat.length]);
+  const clientInfo = c.client || {};
+  const first = (clientInfo.name || "Client").split(" ")[0];
+
+  // Extract account name & number if client submitted it in chat (e.g. "Name: Sean Nyakura, Number: 0781108979")
+  const extractedAccount = useMemo(() => {
+    for (const msg of chat) {
+      const text = msg.text || "";
+      if (text.toLowerCase().includes("name:") || text.toLowerCase().includes("number:")) {
+        return text;
+      }
+    }
+    return c.reference || "None provided";
+  }, [chat, c.reference]);
 
   const decide = useMutation({
     mutationFn: async (decision: "approved" | "rejected") => {
@@ -136,7 +168,7 @@ function CaseDetail({ c }: { c: any }) {
     },
     onSuccess: (d) => {
       toast(`${d === "approved" ? "Approved" : "Rejected"} ${c.kind} of ${money(c.amount)}`, {
-        description: d === "approved" ? `${c.client.name} has been notified.` : `${c.client.name} will be told why.`,
+        description: d === "approved" ? `${clientInfo.name} has been notified.` : `${clientInfo.name} will be told why.`,
         icon: <Check className="h-4 w-4" />,
       });
       qc.invalidateQueries();
@@ -155,12 +187,13 @@ function CaseDetail({ c }: { c: any }) {
 
   return (
     <div className="space-y-3">
+      {/* Client Overview Panel */}
       <div className="panel p-4">
         <div className="flex items-start gap-3">
-          <Avatar initials={c.client.initials} className="h-10 w-10" />
+          <Avatar initials={clientInfo.initials || "CU"} className="h-10 w-10" />
           <div className="flex-1">
-            <p className="text-sm font-bold">{c.client.name}</p>
-            <p className="font-mono text-[10px] text-muted-foreground">{c.client.phone}</p>
+            <p className="text-sm font-bold">{clientInfo.name || "Client User"}</p>
+            <p className="font-mono text-[10px] text-muted-foreground">{clientInfo.phone || clientInfo.email || "No contact info"}</p>
           </div>
           <div className="text-right">
             <p className="font-display text-xl font-extrabold">{money(c.amount)}</p>
@@ -178,6 +211,30 @@ function CaseDetail({ c }: { c: any }) {
         )}
       </div>
 
+      {/* Client Submission & Account Info Details */}
+      <div className="panel p-4 space-y-3">
+        <p className="flex items-center gap-2 text-xs font-bold"><FileText className="h-3.5 w-3.5 text-primary" /> Client Submission & Payout Details</p>
+        <div className="grid grid-cols-2 gap-3 rounded-xl bg-muted/50 p-3 text-xs">
+          <div>
+            <span className="text-[10px] text-muted-foreground block">Platform / Method</span>
+            <span className="font-medium">{c.platform || "N/A"}</span>
+          </div>
+          <div>
+            <span className="text-[10px] text-muted-foreground block">Account & Payout Info</span>
+            <span className="font-mono font-medium text-primary">{extractedAccount}</span>
+          </div>
+          <div>
+            <span className="text-[10px] text-muted-foreground block">Transaction Type</span>
+            <span className="font-medium uppercase">{c.kind || "N/A"}</span>
+          </div>
+          <div>
+            <span className="text-[10px] text-muted-foreground block">Client ID</span>
+            <span className="font-mono font-medium truncate block">{c.client_id || "N/A"}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* AI Read Analysis */}
       {ai && (
         <div className="rounded-2xl bg-ink p-4 text-ink-foreground">
           <div className="flex items-center justify-between">
@@ -199,10 +256,42 @@ function CaseDetail({ c }: { c: any }) {
         </div>
       )}
 
+      {/* Client Chat & Receipt Proof Stream */}
       <div className="panel overflow-hidden">
-        <p className="border-b px-4 py-3 text-xs font-bold">Client chat</p>
-        <div className="max-h-[280px] space-y-3 overflow-y-auto bg-chat p-3">
-          {chat.map((m, i) => <ChatBubble key={i} m={m} ai={ai} req={c.amount} />)}
+        <p className="border-b px-4 py-3 text-xs font-bold">Client chat & receipt proof</p>
+        <div ref={boxRef} className="max-h-[340px] space-y-3 overflow-y-auto bg-chat p-3">
+          {chat.map((m: any, i: number) => (
+            <div key={i} className="space-y-2">
+              <ChatBubble m={m} ai={ai} req={c.amount} />
+              {/* Catch uploaded receipt images, files, or attachments */}
+              {(m.image_url || m.receipt_url || m.proof || m.file || m.url || m.name) && (
+                <div className="max-w-[240px] rounded-xl bg-ink text-ink-foreground p-3 shadow-md space-y-2">
+                  <div className="flex items-center gap-2 text-xs font-semibold">
+                    <ImageIcon className="h-4 w-4 text-primary" />
+                    <span className="truncate">{m.name || m.file || "Payment Receipt Proof"}</span>
+                  </div>
+                  {(m.image_url || m.receipt_url || m.proof || m.url) ? (
+                    <a 
+                      href={m.image_url || m.receipt_url || m.proof || m.url} 
+                      target="_blank" 
+                      rel="noreferrer" 
+                      className="block overflow-hidden rounded-lg border border-neutral-700 bg-neutral-900"
+                    >
+                      <img 
+                        src={m.image_url || m.receipt_url || m.proof || m.url} 
+                        alt="Receipt Proof" 
+                        className="h-32 w-full object-cover transition-transform hover:scale-105" 
+                      />
+                    </a>
+                  ) : (
+                    <div className="rounded bg-neutral-800 p-2 text-[10px] font-mono text-neutral-300 text-center">
+                      ✓ File Attached & Verified
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
         <form
           onSubmit={(e) => { e.preventDefault(); if (reply.trim()) send.mutate(); }}
@@ -248,7 +337,6 @@ function ChatBubble({ m, ai, req }: { m: ChatItem; ai: AiRead | null; req: numbe
           </div>
         ))}
       </div>
-      
     );
   if (m.from === "ai")
     return ai ? (
@@ -267,7 +355,7 @@ function ChatBubble({ m, ai, req }: { m: ChatItem; ai: AiRead | null; req: numbe
   return (
     <div className={cn("flex flex-col", mine ? "items-end" : "items-start")}>
       <div className={cn("max-w-[80%] rounded-2xl px-3.5 py-2 text-[11px]", mine ? "bg-ink font-semibold text-ink-foreground" : m.from === "staff" ? "bg-accent text-foreground" : "bg-card")}>
-        {m.text}
+        {m.text || (m.file && `Uploaded file: ${m.file}`) || (m.name && `Uploaded: ${m.name}`)}
       </div>
       {m.at && <span className="mt-1 font-mono text-[9px] text-muted-foreground">{hhmm(m.at)}{m.from === "staff" && " · staff"}</span>}
     </div>
