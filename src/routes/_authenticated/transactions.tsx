@@ -5,6 +5,9 @@ import { CheckCircle2, Clock, Search, XCircle } from "lucide-react";
 import { casesQuery, hhmm, money } from "@/lib/data";
 import { Avatar, PageHead, Pills } from "@/components/bits";
 import { cn } from "@/lib/utils";
+import { FileDown } from "lucide-react";
+import { downloadStatement } from "@/lib/statement";
+import { useLive } from "@/lib/live";
 
 export const Route = createFileRoute("/_authenticated/transactions")({
   head: () => ({
@@ -31,6 +34,17 @@ function when(d: string) {
 }
 
 function Transactions() {
+          <button
+          onClick={() => downloadStatement({
+            title: "Transaction report",
+            rows: rows as any,
+            filename: `Coinspace-report-${new Date().toISOString().slice(0, 10)}.pdf`,
+            logoUrl: "/logo-light.jpeg",
+          })}
+          className="flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-[11px] font-semibold text-primary-foreground"
+        >
+          <FileDown className="h-3.5 w-3.5" /> Download report
+        </button>
   const { data } = useSuspenseQuery(casesQuery);
   const [f, setF] = useState<F>("all");
   const [q, setQ] = useState("");

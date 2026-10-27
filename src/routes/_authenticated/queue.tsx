@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { casesQuery, hhmm, money, type AiRead, type ChatItem } from "@/lib/data";
 import { Avatar, FlagChip, KindIcon, PageHead, Pills } from "@/components/bits";
 import { cn } from "@/lib/utils";
+import { useLive } from "@/lib/live";
 
 export const Route = createFileRoute("/_authenticated/queue")({
   head: () => ({
@@ -32,21 +33,7 @@ function Queue() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   // Realtime subscription so new cases & messages sync instantly
-  useEffect(() => {
-    const refresh = () => qc.invalidateQueries();
-    const channel = supabase
-      .channel("staff-live")
-      .on("postgres_changes", { event: "*", schema: "public", table: "cases" }, (p) => {
-        refresh();
-        if (p.eventType === "INSERT") toast("New client case in the queue");
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "clients" }, refresh)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "activity" }, refresh)
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [qc]);
+  useLive();
 
   const review = cases.filter((c) => c.status === "review");
   const list = review.filter((c) => filter === "all" || c.kind === filter);
@@ -58,9 +45,9 @@ function Queue() {
     const avgMin = staffDecided.length
       ? Math.max(1, Math.round(staffDecided.reduce((s, c) => s + (new Date(c.decided_at!).getTime() - new Date(c.created_at).getTime()), 0) / staffDecided.length / 60000))
       : 3;
-    const vol = cases.filter((c) => isToday(c.created_at)).reduce((s, c) => s + Number(c.amount), 0);
-    const volLabel = vol >= 1000 ? `$${(vol / 1000).toFixed(1)}K` : money(vol);
-    return { auto, avg: avgMin > 120 ? "3 min" : `${avgMin} min`, vol: volLabel };
+    const doneToday = cases.filter((c) => c.status === "approved" && c.kind !== "support" && c.decided_at && isToday(c.decided_at));
+    const vol = doneToday.reduce((s, c) => s + Number(c.amount), 0);
+    return { auto, avg: staffDecided.length ? `${avgMin} min` : "—", vol: money(vol), volSub: `${doneToday.length} approved today` };
   }, [cases]);
 
   return (
@@ -70,7 +57,7 @@ function Queue() {
         <Stat label="Needs review" value={String(review.length)} tone="primary" />
         <Stat label="Auto-approved today" value={String(stats.auto)} />
         <Stat label="Avg. decision" value={stats.avg} />
-        <Stat label="Volume today" value={stats.vol} tone="ink" />
+                <Stat label="Approved volume" value={stats.vol} tone="ink" sub={stats.volSub} />
       </div>
 
       <div className="mt-4 grid gap-4 md:grid-cols-[280px_1fr]">
@@ -128,18 +115,18 @@ function Queue() {
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: string; tone?: "primary" | "ink" }) {
+function Stat({ label, value, tone, sub }: { label: string; value: string; tone?: "primary" | "ink"; sub?: string }) {
   return (
     <div className={cn("panel px-4 py-4", tone === "primary" && "bg-primary text-primary-foreground", tone === "ink" && "bg-ink text-ink-foreground")}>
       <p className={cn("label-mono", tone ? "opacity-70" : "text-muted-foreground")}>{label}</p>
       <p className="mt-1 font-display text-2xl font-extrabold">{value}</p>
+      {sub && <p className="mt-0.5 text-[10px] opacity-60">{sub}</p>}
     </div>
   );
 }
 
 function CaseDetail({ c }: { c: any }) {
   const qc = useQueryClient();
-  const [reply, setReply] = useState("");
   const boxRef = useRef<HTMLDivElement>(null);
   const ai = c.ai_read as AiRead | null;
   const chat = (c.chat ?? []) as ChatItem[];
@@ -147,7 +134,9 @@ function CaseDetail({ c }: { c: any }) {
     boxRef.current?.scrollTo({ top: boxRef.current.scrollHeight, behavior: "smooth" });
   }, [chat.length]);
   const clientInfo = c.client || {};
-  const first = (clientInfo.name || "Client").split(" ")[0];
+  const contact: string = (clientInfo.phone && clientInfo.phone !== "—" ? clientInfo.phone : ai?.sender) || "";
+  const digits = contact.replace(/\D/g, "");
+  const waDigits = digits.startsWith("0") ? "263" + digits.slice(1) : digits;
 
   // Extract account name & number if client submitted it in chat (e.g. "Name: Sean Nyakura, Number: 0781108979")
   const extractedAccount = useMemo(() => {
@@ -176,14 +165,6 @@ function CaseDetail({ c }: { c: any }) {
     onError: (e) => toast.error((e as Error).message),
   });
 
-  const send = useMutation({
-    mutationFn: async () => {
-      const { error } = await supabase.rpc("reply_case", { _case_id: c.id, _text: reply.trim() });
-      if (error) throw error;
-    },
-    onSuccess: () => { setReply(""); qc.invalidateQueries({ queryKey: ["cases"] }); },
-    onError: (e) => toast.error((e as Error).message),
-  });
 
   return (
     <div className="space-y-3">
@@ -293,13 +274,15 @@ function CaseDetail({ c }: { c: any }) {
             </div>
           ))}
         </div>
-        <form
-          onSubmit={(e) => { e.preventDefault(); if (reply.trim()) send.mutate(); }}
-          className="flex items-center gap-2 border-t p-2.5"
-        >
-          <input value={reply} onChange={(e) => setReply(e.target.value)} placeholder={`Reply to ${first}...`} className="flex-1 rounded-full bg-muted px-4 py-2 text-xs outline-none" />
-          <button disabled={send.isPending} className="flex h-8 w-8 items-center justify-center rounded-full bg-ink text-ink-foreground"><Send className="h-3.5 w-3.5" /></button>
-        </form>
+        <div className="flex items-center justify-between gap-2 border-t p-3 text-xs">
+          <span className="font-mono text-[11px] text-muted-foreground">{contact || "No number on file"}</span>
+          {contact && (
+            <div className="flex gap-2">
+              <a href={`https://wa.me/${waDigits}`} target="_blank" rel="noreferrer" className="rounded-full bg-ink px-3.5 py-1.5 font-semibold text-ink-foreground">WhatsApp</a>
+              <a href={`tel:${contact.replace(/\s/g, "")}`} className="rounded-full border px-3.5 py-1.5 font-semibold">Call</a>
+            </div>
+          )}
+        </div>
         <div className="grid grid-cols-2 gap-2 border-t p-3">
           <button disabled={decide.isPending} onClick={() => decide.mutate("approved")} className="flex items-center justify-center gap-1.5 rounded-full bg-primary py-2.5 text-xs font-semibold text-primary-foreground disabled:opacity-60">
             <Check className="h-3.5 w-3.5" /> Approve
@@ -354,7 +337,7 @@ function ChatBubble({ m, ai, req }: { m: ChatItem; ai: AiRead | null; req: numbe
   const mine = m.from === "client";
   return (
     <div className={cn("flex flex-col", mine ? "items-end" : "items-start")}>
-      <div className={cn("max-w-[80%] rounded-2xl px-3.5 py-2 text-[11px]", mine ? "bg-ink font-semibold text-ink-foreground" : m.from === "staff" ? "bg-accent text-foreground" : "bg-card")}>
+      <div className={cn("max-w-[80%] whitespace-pre-line rounded-2xl px-3.5 py-2 text-[11px]", mine ? "bg-ink font-semibold text-ink-foreground" : m.from === "staff" ? "bg-accent text-foreground" : "bg-card")}>
         {m.text || (m.file && `Uploaded file: ${m.file}`) || (m.name && `Uploaded: ${m.name}`)}
       </div>
       {m.at && <span className="mt-1 font-mono text-[9px] text-muted-foreground">{hhmm(m.at)}{m.from === "staff" && " · staff"}</span>}
