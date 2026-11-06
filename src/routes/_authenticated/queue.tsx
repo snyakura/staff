@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useMemo, useState, useEffect, useRef } from "react";
-import { Check, CircleAlert, CircleCheck, CircleX, Copy, MessageCircle, MessageCircleMore, Phone, ScanLine, Send, Zap, FileText, Image as ImageIcon } from "lucide-react";
+import { Check, CircleAlert, CircleCheck, CircleX, Copy, MessageCircle, MessageCircleMore, Phone, ScanLine, Send, X, Zap, FileText, Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { casesQuery, hhmm, money, type AiRead, type ChatItem } from "@/lib/data";
@@ -31,6 +31,7 @@ function Queue() {
   const qc = useQueryClient();
   const [filter, setFilter] = useState<Filter>("all"); // Default to "all" so both deposits and withdrawals show up immediately
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [closedChatId, setClosedChatId] = useState<string | null>(null); // case whose chat panel was closed
 
   // Realtime subscription so new cases & messages sync instantly
   useLive();
@@ -124,14 +125,30 @@ function Queue() {
         )}
       </div>
 
-      {/* Client chat & receipt proof — docked on the right on large screens */}
-      {selected ? (
-        <CasePanel key={`panel-${selected.id}`} c={selected} />
+      {/* Client chat & receipt proof — docked on the right on large screens. Closing only clears the current chat; the panel stays. */}
+      {selected && closedChatId !== selected.id ? (
+        <CasePanel key={`panel-${selected.id}`} c={selected} onClose={() => setClosedChatId(selected.id)} />
       ) : (
-        <aside className={cn(PANEL_SHELL, "mt-4 min-h-[160px] items-center justify-center text-center")}>
-          <MessageCircleMore className="h-5 w-5 text-primary" />
-          <p className="mt-2 text-xs font-semibold">No case selected</p>
-          <p className="text-[10px] text-muted-foreground">The client chat appears here.</p>
+        <aside className={cn(PANEL_SHELL, "mt-4")}>
+          <div className="flex items-center gap-2.5 border-b px-4 py-4 text-sm font-bold sm:px-5">
+            <MessageCircleMore className="h-4 w-4 shrink-0 text-orange-500" /> <span className="truncate">Client chat & receipt proof</span>
+          </div>
+          <div className="flex min-h-[160px] flex-1 flex-col items-center justify-center px-6 py-10 text-center">
+            <MessageCircleMore className="h-6 w-6 text-primary" />
+            <p className="mt-2 text-xs font-semibold">{selected ? "Chat closed" : "No case selected"}</p>
+            <p className="text-[10px] text-muted-foreground">
+              {selected ? "Reopen it to message the client or approve the payout." : "The client chat appears here."}
+            </p>
+            {selected && (
+              <button
+                type="button"
+                onClick={() => setClosedChatId(null)}
+                className="mt-4 rounded-full bg-ink px-4 py-2 text-xs font-semibold text-ink-foreground"
+              >
+                Open chat
+              </button>
+            )}
+          </div>
         </aside>
       )}
     </div>
@@ -244,7 +261,7 @@ const PANEL_SHELL =
 
 const QUICK_REPLIES = ["Receipt verified", "Please resend proof"];
 
-function CasePanel({ c }: { c: any }) {
+function CasePanel({ c, onClose }: { c: any; onClose: () => void }) {
   const qc = useQueryClient();
   const boxRef = useRef<HTMLDivElement>(null);
   const ai = c.ai_read as AiRead | null;
@@ -304,9 +321,14 @@ function CasePanel({ c }: { c: any }) {
       {/* Header */}
       <div className="flex items-center justify-between gap-2 border-b px-4 py-4 sm:px-5">
         <p className="flex min-w-0 items-center gap-2.5 text-sm font-bold"><MessageCircleMore className="h-4 w-4 shrink-0 text-orange-500" /> <span className="truncate">Client chat & receipt proof</span></p>
-        <button type="button" onClick={openReceipt} className="flex shrink-0 items-center gap-1.5 rounded-lg bg-muted px-3 py-1.5 text-[11px] font-semibold">
-          <FileText className="h-3 w-3" /> Receipt
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <button type="button" onClick={openReceipt} className="flex items-center gap-1.5 rounded-lg bg-muted px-3 py-1.5 text-[11px] font-semibold">
+            <FileText className="h-3 w-3" /> Receipt
+          </button>
+          <button type="button" onClick={onClose} aria-label="Close chat" title="Close chat" className="grid size-7 place-items-center rounded-lg bg-muted text-muted-foreground hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       {/* Chat stream */}
