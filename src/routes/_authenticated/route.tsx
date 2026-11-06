@@ -1,8 +1,9 @@
-import { createFileRoute, Link, Outlet, redirect, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, redirect, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Inbox, ArrowLeftRight, Users, ScrollText, Globe, LogOut } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { casesQuery } from "@/lib/data";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -24,6 +25,7 @@ function Shell() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const isStaff = true; // Auto-bypass role check
+  const wide = useRouterState({ select: (s) => s.location.pathname.startsWith("/queue") });
   
   const { data: cases } = useQuery({ ...casesQuery, enabled: isStaff });
   const pending = (cases ?? []).filter((c) => c.status === "review").length;
@@ -57,7 +59,7 @@ function Shell() {
               <n.icon className="h-4 w-4" strokeWidth={2} />
               <span className="flex-1">{n.label}</span>
               {n.to === "/queue" && pending > 0 && (
-                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-neutral-700 px-1.5 text-[10px] font-bold text-white">
+                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-bold text-primary-foreground">
                   {pending}
                 </span>
               )}
@@ -121,8 +123,8 @@ function Shell() {
       </nav>
 
       {/* Scrollable Content Container with Compact Top Padding */}
-      <main className="flex-1 overflow-y-auto pt-16 pb-24 md:pt-6 md:ml-64 md:pb-6">
-        <div className="mx-auto max-w-[960px] px-4 py-6 sm:px-6">
+      <main className={cn("flex-1 overflow-y-auto pt-16 pb-24 md:pt-6 md:ml-64 md:pb-6", wide && "xl:mr-[clamp(360px,30vw,460px)]")}>
+        <div className={cn("mx-auto px-4 py-6 sm:px-6", wide ? "max-w-none lg:px-8" : "max-w-[960px]")}>
           <Outlet />
         </div>
       </main>

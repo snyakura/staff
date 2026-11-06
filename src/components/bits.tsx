@@ -10,12 +10,13 @@ export function Avatar({ initials, className }: { initials: string; className?: 
   );
 }
 
-export function FlagChip({ label, tone }: { label: string; tone: string }) {
+export function FlagChip({ label, tone, className }: { label: string; tone: string; className?: string }) {
   return (
     <span
       className={cn(
         "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold",
         tone === "danger" ? "bg-danger-soft text-destructive" : "bg-warn-soft text-warn-foreground",
+        className,
       )}
     >
       <AlertTriangle className="h-3 w-3" /> {label}
@@ -31,11 +32,14 @@ export function KindIcon({ kind }: { kind: string }) {
   );
 }
 
-export function PageHead({ title, sub }: { title: string; sub: string }) {
+export function PageHead({ title, sub, right }: { title: string; sub: string; right?: ReactNode }) {
   return (
-    <div className="mb-5">
-      <h1 className="font-display text-[26px] font-extrabold leading-tight">{title}</h1>
-      <p className="text-xs text-muted-foreground">{sub}</p>
+    <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h1 className="font-display text-[26px] font-extrabold leading-tight">{title}</h1>
+        <p className="text-xs text-muted-foreground">{sub}</p>
+      </div>
+      {right}
     </div>
   );
 }

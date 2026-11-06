@@ -50,8 +50,14 @@ function AuthPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <form onSubmit={submit} className="w-full max-w-[260px] text-center">
-        <h1 className="mb-8 flex items-center justify-center gap-1 font-display text-[32px] font-extrabold leading-none">
-          COINSPACE<span className="text-primary">*</span>
+        <h1 className="mb-8">
+          <span className="relative left-1/2 block w-[320px] max-w-[calc(100vw-2rem)] -translate-x-1/2">
+            <img
+              src="/logo-light.png"
+              alt="Coinspace"
+              className="aspect-[1280/240] w-full object-cover object-center mix-blend-multiply"
+            />
+          </span>
         </h1>
         <div className="space-y-3">
           <input className={field} type="email" placeholder="Email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
