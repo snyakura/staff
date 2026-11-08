@@ -1,11 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { CheckCircle2, Clock, Search, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, FileDown, Search, XCircle } from "lucide-react";
 import { casesQuery, hhmm, money } from "@/lib/data";
 import { Avatar, PageHead, Pills } from "@/components/bits";
 import { cn } from "@/lib/utils";
-import { FileDown } from "lucide-react";
 import { downloadStatement } from "@/lib/statement";
 import { useLive } from "@/lib/live";
 
@@ -34,18 +33,9 @@ function when(d: string) {
 }
 
 function Transactions() {
-          <button
-          onClick={() => downloadStatement({
-            title: "Transaction report",
-            rows: rows as any,
-            filename: `Coinspace-report-${new Date().toISOString().slice(0, 10)}.pdf`,
-            logoUrl: "/logo-light.jpeg",
-          })}
-          className="flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-[11px] font-semibold text-primary-foreground"
-        >
-          <FileDown className="h-3.5 w-3.5" /> Download report
-        </button>
-  const { data } = useSuspenseQuery(casesQuery);
+  useLive();
+  const { data: all } = useSuspenseQuery(casesQuery);
+  const data = all.filter((c) => c.kind === "deposit" || c.kind === "withdrawal"); // chats and statement requests are not transactions
   const [f, setF] = useState<F>("all");
   const [q, setQ] = useState("");
   const rows = data.filter((c) => {
@@ -68,6 +58,19 @@ function Transactions() {
           <Search className="h-3.5 w-3.5 text-muted-foreground" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search client, ref, amount..." className="w-44 bg-transparent outline-none" />
         </label>
+        <button
+          onClick={() =>
+            downloadStatement({
+              title: "Transaction report",
+              rows: rows as any,
+              filename: `Coinspace-report-${new Date().toISOString().slice(0, 10)}.pdf`,
+              logoUrl: "/logo-light.jpeg",
+            })
+          }
+          className="flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-[11px] font-semibold text-primary-foreground"
+        >
+          <FileDown className="h-3.5 w-3.5" /> Download report
+        </button>
       </div>
       <div className="panel mt-4 overflow-x-auto">
         <table className="w-full text-left text-[11px]">

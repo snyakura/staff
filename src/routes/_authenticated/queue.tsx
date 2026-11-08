@@ -8,6 +8,7 @@ import { casesQuery, hhmm, money, type AiRead, type ChatItem } from "@/lib/data"
 import { Avatar, FlagChip, KindIcon, PageHead, Pills } from "@/components/bits";
 import { cn } from "@/lib/utils";
 import { useLive } from "@/lib/live";
+import { liveSend } from "@/lib/live-send";
 
 export const Route = createFileRoute("/_authenticated/queue")({
   head: () => ({
@@ -20,16 +21,19 @@ export const Route = createFileRoute("/_authenticated/queue")({
   component: Queue,
 });
 
-type Filter = "all" | "deposit" | "withdrawal";
+type Filter = "all" | "deposit" | "withdrawal" | "support";
 
 function isToday(d: string) {
   return new Date(d).toDateString() === new Date().toDateString();
 }
 
+/** Chats and statement requests are "support" cases: they have no amount. */
+const amountLabel = (c: any) => (c.kind === "support" ? "Chat" : money(c.amount));
+
 function Queue() {
   const { data: cases } = useSuspenseQuery(casesQuery);
   const qc = useQueryClient();
-  const [filter, setFilter] = useState<Filter>("all"); // Default to "all" so both deposits and withdrawals show up immediately
+  const [filter, setFilter] = useState<Filter>("all"); // Default to "all" so deposits, withdrawals and chats show up immediately
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [closedChatId, setClosedChatId] = useState<string | null>(null); // case whose chat panel was closed
 
@@ -77,9 +81,10 @@ function Queue() {
             { v: "all", l: "All Cases" },
             { v: "deposit", l: "Deposits" },
             { v: "withdrawal", l: "Withdrawals" },
+            { v: "support", l: "Chats" },
           ]}
         />
-        <p className="text-xs text-muted-foreground">Showing active active queue items</p>
+        <p className="text-xs text-muted-foreground">Showing active queue items</p>
       </div>
 
       <div className="mt-4 grid gap-6 xl:grid-cols-[200px_minmax(0,1fr)] xl:items-start 2xl:grid-cols-[240px_minmax(0,1fr)]">
@@ -101,10 +106,10 @@ function Queue() {
                   <Avatar initials={c.client?.initials || "U"} />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-xs font-bold">{c.client?.name || "Client User"}</p>
-                    <p className="flex items-center gap-1 text-[10px] text-muted-foreground"><KindIcon kind={c.kind} /> {c.kind} · {c.platform}</p>
+                    <p className="flex items-center gap-1 text-[10px] text-muted-foreground"><KindIcon kind={c.kind} /> {c.kind === "support" ? "chat" : c.kind} · {c.platform}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-xs font-bold">{money(c.amount)}</p>
+                    <p className="text-xs font-bold">{amountLabel(c)}</p>
                     <p className="font-mono text-[9px] text-muted-foreground">{hhmm(c.created_at)}</p>
                   </div>
                 </div>
@@ -195,8 +200,8 @@ function CaseDetail({ c }: { c: any }) {
             <p className="mt-0.5 text-xs uppercase text-muted-foreground">{clientInfo.phone || clientInfo.email || "No contact info"}</p>
           </div>
           <div className="ml-auto text-right">
-            <p className="font-display text-2xl font-extrabold leading-tight sm:text-3xl">{money(c.amount)}</p>
-            <p className="text-[11px] text-muted-foreground">{c.kind} · ref <span className="font-mono text-foreground">{c.reference}</span></p>
+            <p className="font-display text-2xl font-extrabold leading-tight sm:text-3xl">{amountLabel(c)}</p>
+            <p className="text-[11px] text-muted-foreground">{c.kind === "support" ? "chat" : c.kind} · ref <span className="font-mono text-foreground">{c.reference}</span></p>
           </div>
         </div>
         {c.flag && (
@@ -267,6 +272,7 @@ function CasePanel({ c, onClose }: { c: any; onClose: () => void }) {
   const ai = c.ai_read as AiRead | null;
   const chat = (c.chat ?? []) as ChatItem[];
   const [reply, setReply] = useState("");
+  const isChat = c.kind === "support";
   useEffect(() => {
     boxRef.current?.scrollTo({ top: boxRef.current.scrollHeight, behavior: "smooth" });
   }, [chat.length]);
@@ -282,8 +288,9 @@ function CasePanel({ c, onClose }: { c: any; onClose: () => void }) {
       return decision;
     },
     onSuccess: (d) => {
-      toast(`${d === "approved" ? "Approved" : "Rejected"} ${c.kind} of ${money(c.amount)}`, {
-        description: d === "approved" ? `${clientInfo.name} has been notified.` : `${clientInfo.name} will be told why.`,
+      liveSend(c.id, "status", { status: d }); // the client's chat shows the decision straight away
+      toast(isChat ? "Chat closed" : `${d === "approved" ? "Approved" : "Rejected"} ${c.kind} of ${money(c.amount)}`, {
+        description: isChat ? `${clientInfo.name} has been told the chat is closed.` : d === "approved" ? `${clientInfo.name} has been notified.` : `${clientInfo.name} will be told why.`,
         icon: <Check className="h-4 w-4" />,
       });
       qc.invalidateQueries();
@@ -291,14 +298,12 @@ function CasePanel({ c, onClose }: { c: any; onClose: () => void }) {
     onError: (e) => toast.error((e as Error).message),
   });
 
-  // Staff reply — shows up in the client's chat as "Coinspace team: ..."
+  // Staff reply: saved on the case, then pushed to the client's open chat instantly as "Coinspace team: ..."
   const sendReply = useMutation({
     mutationFn: async (text: string) => {
-      const { error } = await supabase.rpc("staff_append_chat", {
-        _case_id: c.id,
-        _item: { from: "staff", text, at: new Date().toISOString() },
-      });
+      const { data, error } = await (supabase as any).rpc("staff_reply", { _case_id: c.id, _text: text }); // not in the generated types yet
       if (error) throw error;
+      liveSend(c.id, "staff", data as Record<string, unknown>);
     },
     onSuccess: () => {
       setReply("");
@@ -322,9 +327,11 @@ function CasePanel({ c, onClose }: { c: any; onClose: () => void }) {
       <div className="flex items-center justify-between gap-2 border-b px-4 py-4 sm:px-5">
         <p className="flex min-w-0 items-center gap-2.5 text-sm font-bold"><MessageCircleMore className="h-4 w-4 shrink-0 text-orange-500" /> <span className="truncate">Client chat & receipt proof</span></p>
         <div className="flex shrink-0 items-center gap-2">
-          <button type="button" onClick={openReceipt} className="flex items-center gap-1.5 rounded-lg bg-muted px-3 py-1.5 text-[11px] font-semibold">
-            <FileText className="h-3 w-3" /> Receipt
-          </button>
+          {!isChat && (
+            <button type="button" onClick={openReceipt} className="flex items-center gap-1.5 rounded-lg bg-muted px-3 py-1.5 text-[11px] font-semibold">
+              <FileText className="h-3 w-3" /> Receipt
+            </button>
+          )}
           <button type="button" onClick={onClose} aria-label="Close chat" title="Close chat" className="grid size-7 place-items-center rounded-lg bg-muted text-muted-foreground hover:text-foreground">
             <X className="h-4 w-4" />
           </button>
@@ -372,7 +379,7 @@ function CasePanel({ c, onClose }: { c: any; onClose: () => void }) {
 
       {/* Quick replies */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-3">
-        {QUICK_REPLIES.map((q) => (
+        {(isChat ? ["How can I help you?", "One moment please"] : QUICK_REPLIES).map((q) => (
           <button key={q} type="button" onClick={() => setReply(q)} className="rounded-full border bg-card px-3.5 py-1.5 text-[11px] font-medium hover:bg-muted">
             "{q}"
           </button>
@@ -382,14 +389,14 @@ function CasePanel({ c, onClose }: { c: any; onClose: () => void }) {
       {/* Decision */}
       <div className="grid grid-cols-2 gap-3 border-t px-4 py-3">
         <button disabled={decide.isPending} onClick={() => decide.mutate("approved")} className="flex items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3 text-xs font-semibold text-white disabled:opacity-60 sm:text-sm">
-          <CircleCheck className="h-4 w-4" /> Approve Payout
+          <CircleCheck className="h-4 w-4" /> {isChat ? "Resolve & close chat" : "Approve Payout"}
         </button>
         <button disabled={decide.isPending} onClick={() => decide.mutate("rejected")} className="flex items-center justify-center gap-2 rounded-xl bg-red-600 py-3 text-xs font-semibold text-white disabled:opacity-60 sm:text-sm">
-          <CircleX className="h-4 w-4" /> Reject
+          <CircleX className="h-4 w-4" /> {isChat ? "Dismiss" : "Reject"}
         </button>
       </div>
 
-      {/* Staff reply input — the message appears in the client's chat */}
+      {/* Staff reply input — the message appears instantly in the client's chat */}
       <div className="flex items-center gap-2 px-4 pb-3">
         <input
           value={reply}
@@ -397,7 +404,8 @@ function CasePanel({ c, onClose }: { c: any; onClose: () => void }) {
           onKeyDown={(e) => {
             if (e.key === "Enter" && reply.trim() && !sendReply.isPending) sendReply.mutate(reply.trim());
           }}
-          placeholder="Type staff note or message..."
+          maxLength={1000}
+          placeholder="Type a message to the client..."
           className="h-11 min-w-0 flex-1 rounded-xl border bg-muted/60 px-4 text-xs outline-none focus:ring-1 focus:ring-foreground"
         />
         <button
