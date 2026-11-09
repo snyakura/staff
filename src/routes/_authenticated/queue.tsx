@@ -7,7 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { casesQuery, hhmm, money, type AiRead, type ChatItem } from "@/lib/data";
 import { Avatar, FlagChip, KindIcon, PageHead, Pills } from "@/components/bits";
 import { cn } from "@/lib/utils";
-import { useLive } from "@/lib/live";
+import { setStaffChatOpen, takePendingCase, useLive } from "@/lib/live";
 import { liveSend } from "@/lib/live-send";
 
 export const Route = createFileRoute("/_authenticated/queue")({
@@ -43,6 +43,27 @@ function Queue() {
   const review = cases.filter((c) => c.status === "review");
   const list = review.filter((c) => filter === "all" || c.kind === filter);
   const selected = list.find((c) => c.id === selectedId) ?? list[0] ?? null;
+
+  // A client wrote: open their chat (with its full history) when asked to
+  useEffect(() => {
+    const open = (id: string) => {
+      takePendingCase();
+      setFilter("all");
+      setSelectedId(id);
+      setClosedChatId(null);
+    };
+    const pending = takePendingCase();
+    if (pending) open(pending);
+    const onOpen = (e: Event) => open(String((e as CustomEvent).detail));
+    window.addEventListener("staff:open-case", onOpen);
+    return () => window.removeEventListener("staff:open-case", onOpen);
+  }, []);
+
+  // tell the live listener whether a chat panel is open right now
+  useEffect(() => {
+    setStaffChatOpen(!!selected && closedChatId !== selected.id);
+    return () => setStaffChatOpen(false);
+  }, [selected?.id, closedChatId]);
 
   const stats = useMemo(() => {
     const auto = cases.filter((c) => c.status === "approved" && c.decided_by === "system" && c.decided_at && isToday(c.decided_at)).length;
