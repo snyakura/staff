@@ -5,10 +5,9 @@
 export const COMPANY = {
   name: "Coinspace (Pvt) Ltd",
   tagline: "Forex, Metal, Synthetic and Crypto Trading",
-  address: "Harare, Zimbabwe", // TODO: your full address
-  email: "support@coinspace.co.zw", // TODO: edit
-  phone: "+263 00 000 0000", // TODO: edit
-  web: "www.coinspace.co.zw", // TODO: edit
+  address: "Pioneer House, 6th Floor, Office 601",
+  email: "theforexmafia2024@gmail.com",
+  phone: "+263 78 429 3089",
 };
 
 export type StatementRow = {
@@ -109,7 +108,7 @@ export async function downloadStatement(o: Opts) {
   let y = 41;
   doc.setFont("helvetica", "bold").setFontSize(9).setTextColor(...INK).text(COMPANY.name, M, y);
   doc.setFont("helvetica", "normal").setFontSize(8.5).setTextColor(...MUTED);
-  [COMPANY.address, COMPANY.email, COMPANY.phone, COMPANY.web].forEach((t, i) => doc.text(t, M, y + 5 + i * 4.2));
+  [COMPANY.address, COMPANY.email, COMPANY.phone].forEach((t, i) => doc.text(t, M, y + 5 + i * 4.2));
 
   doc.setFont("helvetica", "bold").setFontSize(7.5).setTextColor(...MUTED).text(o.clientName ? "STATEMENT FOR" : "REPORT SCOPE", W - M, y, { align: "right" });
   doc.setFont("helvetica", "bold").setFontSize(11).setTextColor(...INK).text(o.clientName ?? "All clients", W - M, y + 5.5, { align: "right" });
