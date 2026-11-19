@@ -9,6 +9,7 @@ import { Avatar, FlagChip, KindIcon, PageHead, Pills } from "@/components/bits";
 import { cn } from "@/lib/utils";
 import { setStaffChatOpen, takePendingCase, useLive } from "@/lib/live";
 import { liveSend } from "@/lib/live-send";
+import { derivDepositId, looksLikeDerivDeposit, sendDerivDecision } from "@/lib/coins-api";
 
 export const Route = createFileRoute("/_authenticated/queue")({
   head: () => ({
@@ -253,6 +254,12 @@ function CaseDetail({ c }: { c: any }) {
             <span className="mb-1 block text-xs text-muted-foreground">Client ID</span>
             <span className="block break-all font-mono text-[11px] font-medium">{c.client_id || "N/A"}</span>
           </div>
+          {derivDepositId(c) && (
+            <div className="sm:col-span-2">
+              <span className="mb-1 block text-xs text-muted-foreground">Deriv deposit ID (approving sends the money to Deriv)</span>
+              <span className="block break-all font-mono text-[11px] font-medium">{derivDepositId(c)}</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -302,16 +309,29 @@ function CasePanel({ c, onClose }: { c: any; onClose: () => void }) {
   const digits = contact.replace(/\D/g, "");
   const waDigits = digits.startsWith("0") ? "263" + digits.slice(1) : digits;
 
+  const depositId = derivDepositId(c); // set only for Deriv deposits: the payments server sends their money
+
   const decide = useMutation({
     mutationFn: async (decision: "approved" | "rejected") => {
+      let note: string | null = null;
+      if (depositId) {
+        // Deriv deposit: the payments server must act first. If it refuses or fails, this throws and the case stays untouched.
+        note = (await sendDerivDecision(depositId, decision)).done;
+      } else if (looksLikeDerivDeposit(c)) {
+        // Labelled Deriv but without its deposit id: closing it here would send nothing to Deriv, so refuse.
+        throw new Error("This Deriv deposit has no Deriv deposit ID, so it can't be approved or rejected here. Handle it in the Coins admin.");
+      }
       const { error } = await supabase.rpc("decide_case", { _case_id: c.id, _decision: decision });
-      if (error) throw error;
-      return decision;
+      if (error) {
+        if (note) throw new Error(`${note} But the case could not be closed here (${error.message}). Do NOT press the button again; refresh this page.`);
+        throw error;
+      }
+      return { decision, note };
     },
-    onSuccess: (d) => {
+    onSuccess: ({ decision: d, note }) => {
       liveSend(c.id, "status", { status: d }); // the client's chat shows the decision straight away
       toast(isChat ? "Chat closed" : `${d === "approved" ? "Approved" : "Rejected"} ${c.kind} of ${money(c.amount)}`, {
-        description: isChat ? `${clientInfo.name} has been told the chat is closed.` : d === "approved" ? `${clientInfo.name} has been notified.` : `${clientInfo.name} will be told why.`,
+        description: isChat ? `${clientInfo.name} has been told the chat is closed.` : note ?? (d === "approved" ? `${clientInfo.name} has been notified.` : `${clientInfo.name} will be told why.`),
         icon: <Check className="h-4 w-4" />,
       });
       qc.invalidateQueries();
@@ -410,7 +430,7 @@ function CasePanel({ c, onClose }: { c: any; onClose: () => void }) {
       {/* Decision */}
       <div className="grid grid-cols-2 gap-3 border-t px-4 py-3">
         <button disabled={decide.isPending} onClick={() => decide.mutate("approved")} className="flex items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3 text-xs font-semibold text-white disabled:opacity-60 sm:text-sm">
-          <CircleCheck className="h-4 w-4" /> {isChat ? "Resolve & close chat" : "Approve Payout"}
+          <CircleCheck className="h-4 w-4" /> {isChat ? "Resolve & close chat" : depositId ? "Approve & send to Deriv" : "Approve Payout"}
         </button>
         <button disabled={decide.isPending} onClick={() => decide.mutate("rejected")} className="flex items-center justify-center gap-2 rounded-xl bg-red-600 py-3 text-xs font-semibold text-white disabled:opacity-60 sm:text-sm">
           <CircleX className="h-4 w-4" /> {isChat ? "Dismiss" : "Reject"}
