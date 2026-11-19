@@ -29,6 +29,13 @@ export function derivDepositId(c: any): string | null {
   return null;
 }
 
+/** True for the record staff get when a client's Deriv withdrawal was accepted by Deriv. Nothing is sent from here; staff pay the client out and mark it. */
+export function isDerivWithdrawal(c: any): boolean {
+  if (!c || c.kind !== "withdrawal") return false;
+  const chat: any[] = Array.isArray(c.chat) ? c.chat : [];
+  return chat.some((m) => !!asId(m?.deriv_withdrawal_id));
+}
+
 /** A deposit case that is labelled as Deriv ("Deriv · Ecocash") but has no deposit id. It must never be approved with the old, local-only button. */
 export const looksLikeDerivDeposit = (c: any): boolean =>
   !!c && c.kind === "deposit" && typeof c.platform === "string" && /^deriv\b/i.test(c.platform.trim());

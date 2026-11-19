@@ -9,7 +9,7 @@ import { Avatar, FlagChip, KindIcon, PageHead, Pills } from "@/components/bits";
 import { cn } from "@/lib/utils";
 import { setStaffChatOpen, takePendingCase, useLive } from "@/lib/live";
 import { liveSend } from "@/lib/live-send";
-import { derivDepositId, looksLikeDerivDeposit, sendDerivDecision } from "@/lib/coins-api";
+import { derivDepositId, isDerivWithdrawal, looksLikeDerivDeposit, sendDerivDecision } from "@/lib/coins-api";
 
 export const Route = createFileRoute("/_authenticated/queue")({
   head: () => ({
@@ -310,6 +310,7 @@ function CasePanel({ c, onClose }: { c: any; onClose: () => void }) {
   const waDigits = digits.startsWith("0") ? "263" + digits.slice(1) : digits;
 
   const depositId = derivDepositId(c); // set only for Deriv deposits: the payments server sends their money
+  const derivWd = isDerivWithdrawal(c); // record of a withdrawal Deriv already accepted: closing it here sends nothing
 
   const decide = useMutation({
     mutationFn: async (decision: "approved" | "rejected") => {
@@ -428,13 +429,13 @@ function CasePanel({ c, onClose }: { c: any; onClose: () => void }) {
       </div>
 
       {/* Decision */}
-      <div className="grid grid-cols-2 gap-3 border-t px-4 py-3">
+      <div className={cn("grid gap-3 border-t px-4 py-3", derivWd ? "grid-cols-1" : "grid-cols-2")}>
         <button disabled={decide.isPending} onClick={() => decide.mutate("approved")} className="flex items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3 text-xs font-semibold text-white disabled:opacity-60 sm:text-sm">
-          <CircleCheck className="h-4 w-4" /> {isChat ? "Resolve & close chat" : depositId ? "Approve & send to Deriv" : "Approve Payout"}
+          <CircleCheck className="h-4 w-4" /> {isChat ? "Resolve & close chat" : depositId ? "Approve & send to Deriv" : derivWd ? "Mark as paid out" : "Approve Payout"}
         </button>
-        <button disabled={decide.isPending} onClick={() => decide.mutate("rejected")} className="flex items-center justify-center gap-2 rounded-xl bg-red-600 py-3 text-xs font-semibold text-white disabled:opacity-60 sm:text-sm">
+        {!derivWd && <button disabled={decide.isPending} onClick={() => decide.mutate("rejected")} className="flex items-center justify-center gap-2 rounded-xl bg-red-600 py-3 text-xs font-semibold text-white disabled:opacity-60 sm:text-sm">
           <CircleX className="h-4 w-4" /> {isChat ? "Dismiss" : "Reject"}
-        </button>
+        </button>}
       </div>
 
       {/* Staff reply input — the message appears instantly in the client's chat */}
