@@ -69,7 +69,7 @@ function Shell() {
 
         <div className="mt-auto space-y-2 border-t border-neutral-800 pt-4">
           <a
-            href="https://coins-three-theta.vercel.app/"
+            href="https://coinspace.digital/"
             target="_blank"
             rel="noreferrer"
             className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-neutral-300 transition-colors hover:bg-neutral-900 hover:text-white"
